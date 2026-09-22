@@ -1,0 +1,195 @@
+# CDFCI
+
+CDFCI (Coordinate Descent Full Configuration Interaction) is a modern, efficient solver for the ground-state electronic structure problem in quantum chemistry. It is implemented in modern C++17 with support for large-scale sparse wavefunctions and adaptive compression strategies.
+
+📖 中文说明请参见：[README\_zh.md](doc/README_zh.md)
+
+---
+
+## ✨ Overview
+
+CDFCI reformulates the full configuration interaction (FCI) eigenvalue problem as a large-scale unconstrained nonconvex optimization problem. It solves this problem using adaptive coordinate descent with deterministic compression.
+
+Key features:
+
+* Coordinate-wise update of Slater determinants
+* Adaptive compression via `z_threshold`
+* Deterministic and memory-aware wavefunction storage
+* Optional support for OpenMP (multi-threaded)
+
+---
+
+## 📄 Citation
+
+The primary paper for this software package is:
+
+* **CDFCI Software Paper**
+  Y. Zhang, Z. Wang, J. Lu, Y. Li, [*arXiv:2605.04483*, 2026](https://arxiv.org/abs/2605.04483)
+
+Algorithm-specific papers:
+
+* **CDFCI Core Algorithm**
+  Z. Wang, Y. Li, J. Lu, [*JCTC*, 15(6), 2019](https://pubs.acs.org/doi/10.1021/acs.jctc.9b00138)
+
+* **Optimal Orbital Selection (OptOrbFCI)**
+  Y. Li, J. Lu, [*JCTC*, 16(10), 2020](https://pubs.acs.org/doi/10.1021/acs.jctc.0c00613)
+
+* **Low-lying Excited States Extension**
+  Z. Wang, Z. Zhang, J. Lu, Y.Li, [*JCTC*, 19(21), 2023](https://pubs.acs.org/doi/abs/10.1021/acs.jctc.3c00452)
+
+* **Multicoordinate Parallel Extension**
+  Y. Zhang, W. Gao, Y. Li, [*JCTC*, 21(5), 2025](https://pubs.acs.org/doi/10.1021/acs.jctc.4c01530)
+
+with convergence guarantee:
+
+* **Coordinate Descent Convergence Theory**
+  Y. Li, J. Lu, Z. Wang, [*SIAM J. Sci. Comput.*, 41(4), 2019](https://doi.org/10.1137/18M1202505)
+
+Please cite the relevant paper(s) if you use this software.
+
+---
+
+## 🚀 Getting Started
+
+For Python workflows and advanced scripting usage, see the [Python Interface User Manual](./PYTHON_INTERFACE_USER_MANUAL.md).
+
+### Clone and Build
+
+Clone this repository using the URL shown under its GitHub **Code** button,
+then run from the project root:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+```
+
+Eigen is discovered on the system or fetched automatically during configure.
+The following executables will be generated in `build/bin`:
+
+* `cdfci`: single-threaded version
+* `cdfci_omp`: OpenMP-enabled version
+* `xcdfci`: for excited states
+* `xcdfci_omp`: OpenMP-enabled excited-state version
+* `optorbfci`: for orbital rotation and compression
+* `cdfci_tools`: auxiliary utilities
+
+You can build a specific executable with, for example,
+`cmake --build build --target cdfci`. The main configuration options are:
+
+* `CDFCI_ENABLE_OPENMP=ON|OFF`: build OpenMP variants when available (default `ON`)
+* `CDFCI_BUILD_PYTHON=ON|OFF`: build the `_cdfci` Python extension (default `OFF`)
+* `BUILD_TESTING=ON|OFF`: build regression-test executables (default `ON`)
+* `CDFCI_ARCH_FLAGS="..."`: add optional architecture-specific compiler flags
+
+Install with `cmake --install build --prefix /path/to/prefix`. The legacy
+Makefile remains available for existing workflows, but CMake is the supported
+and CI-tested build path.
+
+### Requirements
+
+* C++17 compiler (GCC ≥ 9, Clang ≥ 10, or ICC)
+* CMake 3.20 or newer
+* [Eigen3](https://eigen.tuxfamily.org) (fetched automatically if unavailable)
+* OpenMP (optional)
+
+### Run on BSCC-A2 (single core)
+
+From the project root on the login node, compile once, then submit the included
+Slurm shell script:
+
+```bash
+source /public3/soft/modules/module.sh
+module load gcc/12.2
+module load cmake/3.28.0
+cmake -S . -B build_a2_gcc12 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+cmake --build build_a2_gcc12 --target cdfci --parallel 2
+sbatch run_cdfci_serial.sh
+```
+
+This runs `examples/demo_input_energy_correction.json` and writes the iteration
+table and final energy to `cdfci_serial_<job-id>.out`. The example reports every
+1000 iterations with energy correction enabled. To use another input, pass its
+path as an argument; set `solver.cdfci.energy_correction.enabled` to `false` to
+skip the correction calculation (the correction columns then show zero):
+
+```bash
+sbatch run_cdfci_serial.sh examples/demo_input_cdfci.json
+```
+
+The job expects `build_a2_gcc12/bin/cdfci` by default. Set `CDFCI_APP` at
+submission time if the executable is elsewhere.
+
+---
+
+## 📥 Input Format (JSON)
+
+The solver accepts a JSON input file. Example:
+
+```json
+{
+    "hamiltonian": {
+        "type": "molecule",
+        "molecule": {
+            "fcidump_path": "/path/to/FCIDUMP",
+            "threshold": 0.0
+        }
+    },
+    "solver":{
+        "type": "cdfci",
+        "cdfci": {
+            "num_iterations": 150000,
+            "report_interval": 10000,
+            "z_threshold": 0,
+            "z_threshold_search": false
+        }
+    },
+    "max_memory": 0.005
+}
+```
+
+More examples, including [a full documentation for input and output](./examples/README.md), can be found in the `examples/` directory.
+
+An optional [streaming energy correction](./doc/energy_correction.md) reports
+projected diagonal energy estimates during CDFCI, using the existing sparse
+wavefunction without an additional Hamiltonian application.
+
+---
+
+## 🧪 Testing
+
+To compile and run regression tests:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+```
+
+Example systems and expected energies are provided in `regression_tests`.
+
+---
+
+## 📊 Reproducibility
+
+The `examples/` and `papers/` directories contain all scripts and input files to reproduce published results. Requires Python and [PySCF](https://github.com/pyscf/pyscf) to generate FCIDUMP files.
+
+---
+
+## 👥 Developers
+
+* Zhe Wang (Mathematics Department, Duke University)
+* [Jianfeng Lu](https://services.math.duke.edu/~jianfeng/) (Mathematics Department, Duke University)
+* [Yingzhou Li](http://yingzhouli.com/) (School of Mathematical Sciences, Fudan University)
+* [Yuejia Zhang](https://ninotreve.github.io/) (School of Mathematical Sciences, Fudan University)
+
+---
+
+## 🪙 Acknowledgements
+
+This work was supported in part by the U.S. National Science Foundation (NSF) under Grant Nos. DMS-1454939 and DMS-2012286; by the National Natural Science Foundation of China under Grant Nos. 12271109 and 12526211; by the Shanghai Pilot Program for Basic Research-Fudan University under Grant No. 21TQ1400100 (22TQ017); and by the Scientific Research Innovation Capability Support Project for Young Faculty under Grant No. SRICSPYF-ZY2025159.
+
+---
+
+## ⚖️ License
+
+This project is licensed under the BSD 3-Clause License. See the [LICENSE](./LICENSE) file for details.

@@ -1,0 +1,21 @@
+.vscode/*
+build/
+build_*/
+cmake-build-*/
+bin/*
+debug/*
+output/
+test/cdfci_test
+test/cdfci_test_omp
+
+data/*.fcidump
+
+*.so
+_cdfci*.so
+*.pyc
+**/__pycache__/*
+
+# Scheduler output and local run logs
+*.out
+*.err
+*.log
