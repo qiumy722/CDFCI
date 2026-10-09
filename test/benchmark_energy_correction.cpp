@@ -3,6 +3,7 @@
 // two 64-bit words are supported so larger orbital spaces are not accidentally
 // restricted to <= 32 spatial orbitals.
 #include "../include/solver.h"
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 
@@ -30,8 +31,11 @@ int run_benchmark(int argc, char **argv)
     const std::string mode = argc >= 7 ? argv[6] : "timed";
     const bool trajectory_only = mode == "trajectory-only";
     const bool ip_only = mode == "ip-only";
-    if (mode != "timed" && !trajectory_only && !ip_only) {
-        std::cerr << "The optional mode must be timed, trajectory-only, or ip-only\n";
+    const bool olsen_only = mode == "olsen-only";
+    const char *verbose_env = std::getenv("CDFCI_BENCHMARK_VERBOSE");
+    const bool live_reports = verbose_env && std::string(verbose_env) == "1";
+    if (mode != "timed" && !trajectory_only && !ip_only && !olsen_only) {
+        std::cerr << "The optional mode must be timed, trajectory-only, ip-only, or olsen-only\n";
         return 1;
     }
     const double z_threshold = argc >= 8 ? std::stod(argv[7]) : 1e-3;
@@ -47,8 +51,8 @@ int run_benchmark(int argc, char **argv)
         return 1;
     }
     const bool automatic_reference = reference_argument == "auto";
-    if (ip_only && automatic_reference) {
-        std::cerr << "ip-only mode requires a supplied reference energy\n";
+    if ((ip_only || olsen_only) && automatic_reference) {
+        std::cerr << "ip-only and olsen-only modes require a supplied reference energy\n";
         return 1;
     }
     if (automatic_reference && reference_iterations <= iterations) {
@@ -64,10 +68,12 @@ int run_benchmark(int argc, char **argv)
     Option opt = {{"num_iterations", iterations}, {"report_interval", interval},
                   {"num_coordinates", num_coordinates}, {"z_threshold", z_threshold},
                   {"stopping_dx_threshold", 1e-8},
-                  {"max_wavefunction_size", max_wavefunction_size}, {"verbose", 0}};
+                  {"max_wavefunction_size", max_wavefunction_size},
+                  {"verbose", live_reports ? 1 : 0}};
 
     std::ostringstream muted;
-    auto original = std::cout.rdbuf(muted.rdbuf());
+    auto original = std::cout.rdbuf();
+    if (!live_reports) std::cout.rdbuf(muted.rdbuf());
     auto run = [&](bool enabled, bool history, size_t steps, double run_z_threshold) {
         opt["num_iterations"] = steps;
         opt["report_interval"] = std::min(interval, steps);
@@ -75,6 +81,10 @@ int run_benchmark(int argc, char **argv)
         opt["energy_correction"] = {{"enabled", enabled},
                                     {"olsen_enabled", !ip_only},
                                     {"store_history", history}};
+        if (live_reports)
+            std::cout << "[Benchmark] "
+                      << (enabled ? (ip_only ? "IP/PT2" : "IP/PT2+Olsen") : "raw CDFCI")
+                      << " iterations=" << steps << std::endl;
         CDFCISolver<Ham, Wf> solver(opt);
         Wf wf;
         const auto start = std::chrono::steady_clock::now();
@@ -112,12 +122,11 @@ int run_benchmark(int argc, char **argv)
         reference = std::stod(reference_argument);
     }
 
-    if (!trajectory_only)
+    if (!trajectory_only && !olsen_only)
         run(false, false, std::min<size_t>(iterations, 200), z_threshold); // warm caches
 
-    // baseline2 measures IP/PT2 alone, including its incremental maintenance.
-    // It does not repeat the already available raw and IP+Olsen trajectories.
-    if (ip_only) {
+    // Single-mode runs do not repeat the raw or other correction trajectories.
+    if (ip_only || olsen_only) {
         auto trajectory = run(true, true, iterations, z_threshold);
         std::cout.rdbuf(original);
         Option records = Option::array();
@@ -144,7 +153,10 @@ int run_benchmark(int argc, char **argv)
         std::ofstream file(argv[5]);
         file << output.dump(2) << '\n';
         if (!file) return 2;
-        std::cout << "Saved IP-only baseline2: " << argv[5] << '\n';
+        std::cout << (ip_only ? "IP/PT2" : "IP/PT2+Olsen") << ": "
+                  << std::fixed << std::setprecision(6)
+                  << trajectory.second["seconds"].template get<double>() << " seconds\n";
+        std::cout << "Saved " << mode << ": " << argv[5] << '\n';
         return 0;
     }
 
@@ -243,7 +255,7 @@ int main(int argc, char **argv)
     if (argc < 6 || argc > 13) {
         std::cerr
             << "Usage: benchmark_energy_correction FCIDUMP iterations interval "
-               "reference_energy|auto output.json [timed|trajectory-only|ip-only "
+               "reference_energy|auto output.json [timed|trajectory-only|ip-only|olsen-only "
                "[z_threshold [max_wavefunction_size [num_coordinates "
                "[timing_repeats [reference_iterations [reference_z_threshold]]]]]]]]\n";
         return 1;

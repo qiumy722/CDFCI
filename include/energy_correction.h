@@ -160,6 +160,11 @@ EnergyCorrectionResult compute_cached_internal_energy_correction(const W &wf)
     const Quad mp = static_cast<Quad>(rows[pivot].hii) - energy;
     const Quad ratio = static_cast<Quad>(rows[pivot].b) / xp;
     Quad aa = 0, ax = 0, xx = 0, residual_internal = 0;
+#if defined(_OPENMP) && !defined(CDFCI_SOLVER_SERIAL)
+    // Use the solver's OpenMP thread setting; small reports stay serial.
+    // Each thread reads compact rows and accumulates private Quad sums.
+#pragma omp parallel for schedule(static) if(rows.size() >= 4096) reduction(+:aa, ax, xx, residual_internal)
+#endif
     for (size_t i = 0; i < rows.size(); ++i) {
         const auto &row = rows[i];
         if (row.c == 0) continue;

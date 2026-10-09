@@ -25,7 +25,6 @@
 #include "ip_entry.h"
 #include <cmath>
 #include <type_traits>
-#include <unordered_map>
 #include <vector>
 
 #define DEFINE_ACCESSORS(NAME, MEMBER)                                 \
@@ -374,7 +373,9 @@ protected:
     QUAD_PRECISION ip_pt_energy_ = 0;
     size_t ip_diagonal_evaluations_ = 0;
     std::vector<InternalCorrectionRow> ip_internal_rows_;
-    std::unordered_map<key_type, size_t, hasher, key_equal> ip_internal_index_;
+    // Insertions finish before parallel b updates start; concurrent lookups
+    // are const. Flat storage avoids a separately allocated node per V row.
+    robin_hood::unordered_flat_map<key_type, size_t, hasher, key_equal> ip_internal_index_;
 
     bool is_internal(const key_type &det, const mapped_type &val) const
     {
